@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     'tests/build/trigraph_substitution'
+relocations:     []
+...
