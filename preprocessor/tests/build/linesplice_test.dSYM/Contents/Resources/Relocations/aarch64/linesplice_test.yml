@@ -1,5 +1,0 @@
----
-triple:          'arm64-apple-darwin'
-binary-path:     'tests/build/linesplice_test'
-relocations:     []
-...
