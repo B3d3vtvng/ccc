@@ -25,6 +25,8 @@ typedef struct diag_t{
     size_t len;
     char* message;
     bool is_owned;
+    char** include_stack;
+    size_t include_stack_len;
 } diag_t;
 
 typedef struct diag_state_t{
@@ -52,6 +54,12 @@ diag_state_t* diag_init(void){
 }
 
 void diag_free(diag_state_t* diag_state){
+    for (int i = 0; i < diag_state->errorlen; i++){
+        diag_t* diag = &diag_state->errors[i];
+        if (diag->is_owned && diag->message != NULL){
+            free(diag->message);
+        }
+    }
     free(diag_state->errors);
     free(diag_state);
     return;
@@ -70,12 +78,12 @@ void diag_add(diag_state_t* diag_state, diag_metadata_t* metadata, diag_level_t 
     diag_state->errors[diag_state->errorlen].message = message;
     diag_state->errors[diag_state->errorlen].is_owned = is_owned;
     diag_state->errors[diag_state->errorlen].len = len;
+    diag_state->errors[diag_state->errorlen].include_stack = metadata->include_stack;
+    diag_state->errors[diag_state->errorlen].include_stack_len = metadata->include_stack_len;
 
     diag_state->errorlen++;
     return;
 }
-
-
 
 void diag_display_content(diag_t* diag) {
     if (diag->level == PP_FATAL) {
@@ -120,6 +128,24 @@ void diag_display_content(diag_t* diag) {
     free(line);
 }
 
+char* make_include_stack_str(char** include_stack, size_t include_stack_len) {
+    if (include_stack_len == 0) return "";
+    const char annotation[] = "In file included from %s:\n";
+    char* result = s_malloc(sizeof(char) * 256);
+    size_t result_cap = 256;
+    int pos = 0;
+    for (int i = 0; i < include_stack_len; i++) {
+        size_t len = snprintf(NULL, 0, annotation, include_stack[i]);
+        pos += len;
+        if (pos >= result_cap - 1) {
+            result_cap *= 2;
+            result = s_realloc(result, result_cap);
+        }
+        snprintf(result+pos-len, len+1, annotation, include_stack[i]);
+    }
+    return result;
+}
+
 void diag_display(diag_state_t* diag_state){
     const char* color_error = "\033[1;31m";
     const char* color_warning = "\033[1;33m";
@@ -151,9 +177,11 @@ void diag_display(diag_state_t* diag_state){
                 level_str = "Unknown";
                 color = color_reset;
         }
+        char* include_stack_str = make_include_stack_str(diag->include_stack, diag->include_stack_len);
 
-        fprintf(stderr, "%s%s:%d:%d: %s: %s%s\n",
+        fprintf(stderr, "%s%s%s:%d:%d: %s: %s%s\n",
             color,
+            include_stack_str,
             diag->filename ? diag->filename : "<unknown>",
             diag->line,
             diag->col,
@@ -161,6 +189,10 @@ void diag_display(diag_state_t* diag_state){
             diag->message ? diag->message : "",
             color_reset
         );
+
+        if (diag->include_stack_len > 0) {
+            free(include_stack_str);
+        }
 
         diag_display_content(diag);
     }

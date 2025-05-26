@@ -28,7 +28,7 @@ const char test_expected[] =
     "This line should be merged with this line\n";
 
 // Test: make_lines_c (line splicing from char* input)
-void test_make_lines_c() {
+void test_make_lines_c(void) {
     line_buf_t* lines = make_lines_c((char*)test_content);
 
     // Flatten lines into a single string
@@ -55,7 +55,7 @@ void test_make_lines_c() {
 }
 
 // Test: make_lines_tb (line splicing from tbuf_t input)
-void test_make_lines_tb() {
+void test_make_lines_tb(void) {
     // Fill tbuf_t with test_content
     tbuf_t* tb = tracked_buffer_new();
     int line = 1, col = 1;
