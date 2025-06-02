@@ -10,6 +10,7 @@ typedef struct {
 } codepoint_range_t;
 
 static const codepoint_range_t identifier_start_ranges[] = {
+    {0x5f, 0x5f}, // underscore
     {0x41, 0x5A},
     {0x61, 0x7A},
     {0xAA, 0xAA},

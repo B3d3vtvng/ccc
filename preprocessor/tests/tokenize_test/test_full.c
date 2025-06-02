@@ -3,7 +3,7 @@
 int main(void){
     diag_state_t* diag_state = diag_init();
     
-    pp_token_list_t* tokens = tokenize("../../include/tokenize.h", NULL, false, NULL, 0, diag_state);
+    pp_token_list_t* tokens = tokenize("tests/tokenize_test/test_comment.c", NULL, false, NULL, 0, diag_state);
 
     if (tokens){
         pp_tok_list_display(tokens);

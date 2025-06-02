@@ -107,9 +107,18 @@ void diag_display_content(diag_t* diag) {
         cur_line++;
     }
 
-    // Strip trailing newline (optional)
+    // Strip trailing newline
     if (read > 0 && line[read - 1] == '\n') {
         line[read - 1] = '\0';
+    }
+
+    int line_len = (int)strlen(line);
+    if (line_len < diag->len) {
+        diag->len = line_len; // Adjust length if the line is shorter than expected
+    }
+
+    if (diag->len < 1) {
+        diag->len = 1; // Ensure at least one character is displayed
     }
 
     // Print the line
@@ -161,6 +170,7 @@ void diag_display(diag_state_t* diag_state){
             case PP_FATAL:
                 level_str = "Fatal Error";
                 color = color_error;
+                break;
             case PP_ERROR:
                 level_str = "Error";
                 color = color_error;
@@ -179,16 +189,28 @@ void diag_display(diag_state_t* diag_state){
         }
         char* include_stack_str = make_include_stack_str(diag->include_stack, diag->include_stack_len);
 
-        fprintf(stderr, "%s%s%s:%d:%d: %s: %s%s\n",
-            color,
-            include_stack_str,
-            diag->filename ? diag->filename : "<unknown>",
-            diag->line,
-            diag->col,
-            level_str,
-            diag->message ? diag->message : "",
-            color_reset
-        );
+        if (diag->level == PP_FATAL){
+            fprintf(stderr, "%s%s%s: %s: %s%s\n",
+                color,
+                include_stack_str,
+                diag->filename ? diag->filename : "<unknown>",
+                level_str,
+                diag->message ? diag->message : "",
+                color_reset
+            );
+        }
+        else{
+            fprintf(stderr, "%s%s%s:%d:%d: %s: %s%s\n",
+                color,
+                include_stack_str,
+                diag->filename ? diag->filename : "<unknown>",
+                diag->line,
+                diag->col,
+                level_str,
+                diag->message ? diag->message : "",
+                color_reset
+            );
+        }
 
         if (diag->include_stack_len > 0) {
             free(include_stack_str);

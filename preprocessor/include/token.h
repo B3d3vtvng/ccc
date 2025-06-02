@@ -10,7 +10,6 @@ typedef enum{
     TOK_STRING_LIT,
     TOK_CHAR_LIT,
     TOK_OPERATOR,
-    TOK_PUNCT,
     TOK_DIRECTIVE,
     TOK_HASH,
     TOK_DOUBLE_HASH,
@@ -21,7 +20,7 @@ typedef enum{
 
 typedef struct{
     pp_tokentype_t tokentype;
-    char* value;
+    tbuf_t* value;
     src_pos_t src_pos;
     char* filename;
 } pp_token_t;
@@ -34,7 +33,7 @@ typedef struct{
 
 void pp_tok_free(pp_token_t* tok){
     if (tok->value != NULL){
-        free(tok->value);
+        tracked_buffer_free(tok->value);
     }
     free(tok);
     return;
@@ -49,12 +48,22 @@ void pp_tok_list_free(pp_token_list_t* tok_list){
     return;
 }
 
-void pp_tok_append(pp_token_list_t* tok_list, pp_tokentype_t tokentype, char* value, src_pos_t pos, char* filename){
+void pp_tok_append(pp_token_list_t* tok_list, pp_tokentype_t tokentype, tbuf_t* value, char* filename){
     pp_token_t* new_token = s_malloc(sizeof(pp_token_t));
     new_token->tokentype = tokentype;
     new_token->value = value;
-    new_token->src_pos = pos;
-    new_token->filename = filename;
+    if (value != NULL){
+        new_token->src_pos = value->positions[value->length-1];
+        if (value->length == value->capacity-1){
+            value->capacity *= 1.5;
+            value->buffer = s_realloc(value->buffer, value->capacity);
+        }
+        value->buffer[value->length] = '\0';
+        new_token->filename = filename;
+    }
+    else{
+        new_token->src_pos = (src_pos_t){-1, -1};
+    }
 
     if (tok_list->token_len >= tok_list->token_cap-1){
         tok_list->tokens = s_realloc(tok_list->tokens, tok_list->token_cap*2*sizeof(pp_token_t*));
@@ -74,7 +83,6 @@ char* pp_tok_type_str(pp_tokentype_t t) {
         case TOK_STRING_LIT: return "STRING";
         case TOK_CHAR_LIT: return "CHAR";
         case TOK_OPERATOR: return "OP";
-        case TOK_PUNCT: return "PUNCT";
         case TOK_DIRECTIVE: return "DIRECTIVE";
         case TOK_HASH: return "HASH";
         case TOK_DOUBLE_HASH: return "DOUBLE_HASH";
@@ -87,7 +95,7 @@ char* pp_tok_type_str(pp_tokentype_t t) {
 
 void pp_tok_display(pp_token_t* tok){
     char* tok_type_str = pp_tok_type_str(tok->tokentype);
-    printf("%s: \"%s\"", tok_type_str, tok->value);
+    printf("%s: \"%s\"", tok_type_str, tok->value ? tok->value->buffer : "NULL");
     return;
 }
 

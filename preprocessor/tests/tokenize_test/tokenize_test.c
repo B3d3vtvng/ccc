@@ -27,7 +27,6 @@ const char* token_type_str(pp_tokentype_t t) {
         case TOK_STRING_LIT: return "STRING";
         case TOK_CHAR_LIT: return "CHAR";
         case TOK_OPERATOR: return "OP";
-        case TOK_PUNCT: return "PUNCT";
         case TOK_DIRECTIVE: return "DIRECTIVE";
         case TOK_HASH: return "HASH";
         case TOK_DOUBLE_HASH: return "DOUBLE_HASH";
@@ -43,7 +42,7 @@ void flatten_tokens(pp_token_list_t* toks, char* out, size_t outcap) {
     size_t pos = 0;
     for (size_t i = 0; i < toks->token_len && pos < outcap-1; ++i) {
         const char* tstr = token_type_str(toks->tokens[i]->tokentype);
-        int n = snprintf(out+pos, outcap-pos, "<%s:%s>", tstr, toks->tokens[i]->value ? toks->tokens[i]->value : "NULL");
+        int n = snprintf(out+pos, outcap-pos, "<%s:%s>", tstr, toks->tokens[i]->value ? toks->tokens[i]->value->buffer : "NULL");
         pos += n;
     }
     out[pos] = 0;

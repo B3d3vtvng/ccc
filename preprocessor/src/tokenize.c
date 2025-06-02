@@ -43,16 +43,31 @@ const char *valid_operators[] = {
     NULL
 };
 
+void get_src_pos(diag_metadata_t* diag_metadata, size_t pos, char* input){
+    diag_metadata->line = 1;
+    diag_metadata->col = 0;
 
+    for (size_t i = 0; i < pos; i++){
+        if (input[i] == '\n'){
+            diag_metadata->line++;
+            diag_metadata->col = 0;
+        }
+        else{
+            diag_metadata->col++;
+        }
+    }
+
+    diag_metadata->col++;
+}
 
 char* read_input(char* filename, char* input, diag_metadata_t* diag_metadata, diag_state_t* diag_state){
     if (input == NULL){
         FILE* fd = fopen(filename, "r");
         if (fd == NULL){
             char* errormsg;
-            int len = snprintf(NULL, 0, "Fatal: Failed to open included file %s: %s", filename, strerror(errno));
+            int len = snprintf(NULL, 0, "Failed to open file %s: %s", filename, strerror(errno));
             errormsg = s_malloc(sizeof(char) * len);
-            snprintf(errormsg, len+1, "Fatal: Failed to open included file %s: %s", filename, strerror(errno));
+            snprintf(errormsg, len+1, "Failed to open file %s: %s", filename, strerror(errno));
             diag_add(diag_state, diag_metadata, PP_FATAL, errormsg, true, 0);
             return NULL;
         }
@@ -69,22 +84,33 @@ char* read_input(char* filename, char* input, diag_metadata_t* diag_metadata, di
 
         fseek(fd, 0, SEEK_SET);
 
-        input_buf = s_malloc(sizeof(char) * fsize + 1);
+        input_buf = s_malloc(sizeof(char) * fsize + 2);
         fread(input_buf, sizeof(char), fsize, fd);
 
         if (ferror(fd)){
             free(input_buf);
 read_fail:  
             {char* errormsg;
-            int len = snprintf(NULL, 0, "Fatal: Failed to read included file %s: %s", filename, strerror(errno));
+            int len = snprintf(NULL, 0, "Fatal: Failed to read file %s: %s", filename, strerror(errno));
             errormsg = s_malloc(sizeof(char) * len);
-            snprintf(errormsg, len+1, "Fatal: Failed to read included file %s: %s", filename, strerror(errno));
+            snprintf(errormsg, len+1, "Fatal: Failed to read included %s: %s", filename, strerror(errno));
             diag_add(diag_state, diag_metadata, PP_FATAL, errormsg, true, 0);
             fclose(fd);
             return NULL;}
         }
 
         fclose(fd);
+
+        if (input_buf[fsize-1] != '\n'){
+            get_src_pos(diag_metadata, fsize-1, input_buf);
+            diag_add(diag_state, diag_metadata, PP_WARNING, "File does not end with a newline character", false, 1);
+            input_buf[fsize] = '\n';
+            input_buf[fsize+1] = '\0';
+        }
+        else{
+            input_buf[fsize] = '\0';
+        }
+
         return input_buf;
     }
     else{
@@ -194,10 +220,11 @@ line_buf_t* make_lines_c(char* input){
             cur_tbuf = tracked_buffer_new();
             line_buf->len++;
         }
-
         i++;
         col++;
     }
+
+    tracked_buffer_free(cur_tbuf);
 
     return line_buf;
 }
@@ -231,6 +258,8 @@ line_buf_t* make_lines_tb(tbuf_t* tb){
 
         i++;
     }
+
+    tracked_buffer_free(cur_tbuf);
 
     return line_buf;
 }
@@ -445,7 +474,7 @@ bool is_operator_start(char c){
 int process_operator(tbuf_t* line, int i){
     for (int j = 0; valid_operators[j]!= NULL; j++){
         size_t op_len = strlen(valid_operators[j]);
-        if (i+op_len > line->length-1){
+        if (i+op_len > line->length){
             continue;
         }
         if (strncmp(&line->buffer[i], valid_operators[j], op_len) == 0){
@@ -464,9 +493,9 @@ bool tokenize_line(pp_token_list_t* tokens, tbuf_t* line, diag_metadata_t* metad
     int inv_tok_len;
 
     if (in_comment){
-        while (i < line->length-2 && !(line->buffer[i] == '*' && line->buffer[i+1] == '/')) i++;
-        if (i == line->length-3) return true;
-        pp_tok_append(tokens, TOK_EOL, strdup("\n"), line->positions[i], metadata->filename);
+        while (i < line->length-1 && !(line->buffer[i] == '*' && line->buffer[i+1] == '/')) i++;
+        if (i >= line->length-1) return true;
+        in_comment = false;
         i += 2;
     }
 
@@ -485,62 +514,65 @@ bool tokenize_line(pp_token_list_t* tokens, tbuf_t* line, diag_metadata_t* metad
         if (iswhitespace(line->buffer[i])){
             int start = 0;
             while (iswhitespace(line->buffer[i+start])) start++;
-            pp_tok_append(tokens, TOK_WHITESPACE, strndup(&line->buffer[i], start), line->positions[i], metadata->filename);
+            pp_tok_append(tokens, TOK_WHITESPACE, tbuf_from_slice(line, i, start), metadata->filename);
             i += start;
         }
         else if (pp_is_identifier_start(line, i, diag_state, metadata)){
             int start = i;
             while (pp_is_identifier_char(line, &i, diag_state, metadata)); //Read identifier chars until function returns false
-            pp_tok_append(tokens, TOK_IDENTIFIER, strndup(&line->buffer[start], i-start), line->positions[start], metadata->filename);
+            pp_tok_append(tokens, TOK_IDENTIFIER, tbuf_from_slice(line, start, i-start), metadata->filename);
         }
         else if (isdigit(line->buffer[i])){
             int start = i;
             if (process_num(line, &i, diag_state, metadata) == -1){
                 continue;
             }
-            pp_tok_append(tokens, TOK_NUMBER, strndup(&line->buffer[start], i-start), line->positions[start], metadata->filename);
+            pp_tok_append(tokens, TOK_NUMBER, tbuf_from_slice(line, start, i-start), metadata->filename);
         }
         else if (line->buffer[i] == '"' || line->buffer[i] == '\''){
             int start = i;
             char quote = line->buffer[i];
             if (process_lit(line, &i, diag_state, metadata) == -1){
-                pp_tok_append(tokens, TOK_EOL, strdup("\n"), line->positions[line->length-1], metadata->filename);
+                pp_tok_append(tokens, TOK_EOL, tbuf_from_slice(line, line->length-1, 1), metadata->filename);
                 return false;
             }
             if (quote == '\''){
-                pp_tok_append(tokens, TOK_CHAR_LIT, strndup(&line->buffer[start+1], i-start-1), line->positions[start], metadata->filename);
+                pp_tok_append(tokens, TOK_CHAR_LIT, tbuf_from_slice(line, start+1, i-start-1), metadata->filename);
             }
             else{
-                pp_tok_append(tokens, TOK_STRING_LIT, strndup(&line->buffer[start+1], i-start-1), line->positions[i], metadata->filename);
+                pp_tok_append(tokens, TOK_STRING_LIT, tbuf_from_slice(line, start+1, i-start-1), metadata->filename);
                 i++;
             }
         }
         else if (is_directive(line, i)){
             int start = i;
             process_directive(line, &i);
-            pp_tok_append(tokens, TOK_DIRECTIVE, strndup(&line->buffer[start], i-start), line->positions[start], metadata->filename);
+            pp_tok_append(tokens, TOK_DIRECTIVE, tbuf_from_slice(line, start, i-start), metadata->filename);
         }
         else if (line->buffer[i] == '#'){
             if (i != line->length-2 && line->buffer[i+1] == '#'){
-                pp_tok_append(tokens, TOK_DOUBLE_HASH, strndup(&line->buffer[i], 2), line->positions[i], metadata->filename);
+                pp_tok_append(tokens, TOK_DOUBLE_HASH, tbuf_from_slice(line, i, 2), metadata->filename);
                 i += 2;
             }
             else{
-                pp_tok_append(tokens, TOK_HASH, strndup(&line->buffer[i], 1), line->positions[i], metadata->filename);
+                pp_tok_append(tokens, TOK_HASH, tbuf_from_slice(line, i, 1), metadata->filename);
                 i++;
             }
         }
         else if (line->buffer[i] == '/' && i < line->length-2 && line->buffer[i+1] == '/'){
-            pp_tok_append(tokens, TOK_WHITESPACE, strdup(" "), line->positions[i], metadata->filename);
+            pp_tok_append(tokens, TOK_WHITESPACE, tbuf_from_slice(line, i, 1), metadata->filename);
             return false;
         }
         else if (line->buffer[i] == '/' && i < line->length-2 && line->buffer[i+1] == '*'){
             *comment_start_pos = &line->positions[i];
-            return true;
+            pp_tok_append(tokens, TOK_WHITESPACE, tbuf_from_slice(line, i, 1), metadata->filename);
+            tokens->tokens[tokens->token_len-1]->value->buffer[0] = ' ';
+            in_comment = true;
+            i += 2;
         }
         else if (is_operator_start(line->buffer[i])){
             int op_len = process_operator(line, i);
-            pp_tok_append(tokens, TOK_OPERATOR, strndup(&line->buffer[i], op_len), line->positions[i], metadata->filename);
+            pp_tok_append(tokens, TOK_OPERATOR, tbuf_from_slice(line, i, op_len), metadata->filename);
             i += op_len;
         }
         else{
@@ -579,8 +611,10 @@ bool tokenize_line(pp_token_list_t* tokens, tbuf_t* line, diag_metadata_t* metad
         diag_add(diag_state, metadata, PP_ERROR, err_msg, true, strlen(invalid_token));
     }
 
-    pp_tok_append(tokens, TOK_EOL, strdup("\n"), line->positions[line->length-1], metadata->filename);
-    return false;
+    if (!in_comment){
+        pp_tok_append(tokens, TOK_EOL, tbuf_from_slice(line, i, 1), metadata->filename);
+    }
+    return in_comment; // Return whether we are still in a multi-line comment;
 }
 
 int get_comment_len(line_buf_t* lines, src_pos_t* start_pos){
@@ -618,8 +652,8 @@ pp_token_list_t* tokenize(char* filename, char* input, bool enable_trigraphs, ch
         tracked_buffer_free(tbuf_input);
     }
     else{
-        lines = make_lines_c(input);
-        free(input);
+        lines = make_lines_c(new_input);
+        free(new_input);
     }
 
     pp_token_list_t* tokens = s_malloc(sizeof(pp_token_list_t));
@@ -650,7 +684,7 @@ pp_token_list_t* tokenize(char* filename, char* input, bool enable_trigraphs, ch
         last_pos.column++;
     }
 
-    pp_tok_append(tokens, TOK_EOF, NULL, last_pos, filename);
+    pp_tok_append(tokens, TOK_EOF, NULL, filename);
 
     for (int i = 0; i < lines->len; i++){
         tracked_buffer_free(lines->lines[i]);
